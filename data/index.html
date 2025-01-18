@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>ESP32 Robot Control</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                background-color: #f4f4f4;
+                height: 100vh;
+            }
+    
+            h1 {
+                margin: 20px;
+                color: #333;
+            }
+    
+            #cameraImage {
+                border-radius: 10px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+    
+            .control-panel {
+                margin-top: 20px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
+            }
+    
+            #joystick {
+                width: 150px;
+                height: 150px;
+                border-radius: 50%;
+                background: #e0e0e0;
+                box-shadow: inset 0 4px 6px rgba(0, 0, 0, 0.2);
+                position: relative;
+                touch-action: none;
+            }
+    
+            #knob {
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: #007bff;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            }
+    
+            .buttons {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 20px;
+                justify-content: center;
+            }
+    
+            .button {
+                width: 100px;
+                height: 100px;
+                border-radius: 50%;
+                background: #007bff;
+                color: white;
+                font-size: 16px;
+                font-weight: bold;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+                border: none;
+                outline: none;
+                cursor: pointer;
+                transition: background 0.3s;
+            }
+    
+            .button:hover {
+                background: #0056b3;
+            }
+    
+            .button:active {
+                transform: scale(0.95);
+                box-shadow: inset 0 4px 6px rgba(0, 0, 0, 0.2);
+            }
+    
+            .joystick-layout {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                height: 300px;
+                width: 300px;
+            }
+    
+            .diagonal-button:active {
+                transform: scale(0.95);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            }
+    
+            .diagonal-button {
+                position: absolute;
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: #007bff;
+                color: white;
+                font-size: 16px;
+                font-weight: bold;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+                border: none;
+                outline: none;
+                cursor: pointer;
+                transition: background 0.3s;
+            }
+    
+            #diagonalRightForward {
+                top: 20px;
+                right: -10px;
+            }
+    
+            #diagonalLeftForward {
+                top: 20px;
+                left: -10px;
+            }
+    
+            #diagonalRightBackward {
+                bottom: 10px;
+                right: -10px;
+            }
+    
+            #diagonalLeftBackward {
+                bottom: 10px;
+                left: -10px;
+            }
+    
+            .bottom-buttons {
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+                margin-top: 2cqmin;
+            }
+        </style>
+    </head>    
+<body>
+    <h1>ESP32 Robot Control</h1>
+    <img id="cameraImage" src="" style="width: 400px; height: 250px;" alt="Camera Stream">
+
+    <div class="control-panel">
+        <div class="joystick-layout">
+            <div id="joystick">
+                <div id="knob"></div>
+            </div>
+            <button id="diagonalRightForward" class="diagonal-button">&#8599;</button>
+            <button id="diagonalLeftForward" class="diagonal-button">&#8598;</button>
+            <button id="diagonalRightBackward" class="diagonal-button">&#8600;</button>
+            <button id="diagonalLeftBackward" class="diagonal-button">&#8601;</button>        </div>
+
+        <div class="bottom-buttons">
+            <button class="button" id="clockwise">Clockwise</button>
+            <button class="button" id="counterClockwise">Counter-Clockwise</button>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket for Camera Stream
+        const cameraSocketUrl = "ws://192.168.4.1/Camera";
+        let cameraSocket;
+
+        function initCameraSocket() {
+            cameraSocket = new WebSocket(cameraSocketUrl);
+            cameraSocket.binaryType = "blob";
+
+            cameraSocket.onopen = () => console.log("Camera WebSocket connected");
+            cameraSocket.onclose = () => {
+                console.log("Camera WebSocket disconnected. Reconnecting...");
+                setTimeout(initCameraSocket, 2000); // Retry connection after 2 seconds
+            };
+
+            cameraSocket.onmessage = (event) => {
+                console.log("Received image data");
+                const cameraImage = document.getElementById("cameraImage");
+                cameraImage.src = URL.createObjectURL(event.data);
+
+                // Revoke the URL to prevent memory leaks
+                cameraImage.onload = () => URL.revokeObjectURL(cameraImage.src);
+            };
+        }
+
+        // Initialize Camera WebSocket on page load
+        window.onload = initCameraSocket;
+
+        // WebSocket for Joystick Control
+        const joystick = document.getElementById('joystick');
+        const knob = document.getElementById('knob');
+        const controlSocket = new WebSocket('ws://192.168.4.1/ws');
+
+        let isDragging = false;
+
+        joystick.addEventListener('pointerdown', (event) => {
+            isDragging = true;
+            handleJoystickMove(event);
+        });
+
+        window.addEventListener('pointerup', () => {
+            isDragging = false;
+            knob.style.top = '50%';
+            knob.style.left = '50%';
+            controlSocket.send(JSON.stringify({ x: 0, y: 0 }));
+        });
+
+        joystick.addEventListener('pointermove', (event) => {
+            if (!isDragging) return;
+            handleJoystickMove(event);
+        });
+
+        function handleJoystickMove(event) {
+            const rect = joystick.getBoundingClientRect();
+            const x = event.clientX - rect.left - rect.width / 2;
+            const y = event.clientY - rect.top - rect.height / 2;
+
+            const maxRadius = rect.width / 2 - knob.offsetWidth / 2;
+            const distance = Math.min(maxRadius, Math.sqrt(x * x + y * y));
+            const angle = Math.atan2(y, x);
+
+            const dx = Math.cos(angle) * distance;
+            const dy = Math.sin(angle) * distance;
+
+            knob.style.left = `${50 + (dx / maxRadius) * 50}%`;
+            knob.style.top = `${50 + (dy / maxRadius) * 50}%`;
+
+            const xValue = Math.round((dx / maxRadius) * 100);
+            const yValue = Math.round((-dy / maxRadius) * 100);
+            console.log(`X: ${xValue}, Y: ${yValue}`);
+
+            controlSocket.send(JSON.stringify({ x: xValue, y: yValue }));
+        }
+
+        // WebSocket events for joystick
+        controlSocket.onopen = () => console.log("Joystick WebSocket connected");
+        controlSocket.onclose = () => console.log("Joystick WebSocket disconnected");
+
+        // Button Controls
+        const clockwiseButton = document.getElementById('clockwise');
+        const counterClockwiseButton = document.getElementById('counterClockwise');
+        const diagonalRightForwardButton = document.getElementById('diagonalRightForward');
+        const diagonalLeftForwardButton = document.getElementById('diagonalLeftForward');
+        const diagonalRightBackwardButton = document.getElementById('diagonalRightBackward');
+        const diagonalLeftBackwardButton = document.getElementById('diagonalLeftBackward');
+
+        let buttonInterval;
+
+        clockwiseButton.addEventListener('pointerdown', () => {
+            controlSocket.send(JSON.stringify({ clockwise: true }));
+            buttonInterval = setInterval(() => {
+                controlSocket.send(JSON.stringify({ clockwise: true }));
+            }, 100);
+        });
+
+        counterClockwiseButton.addEventListener('pointerdown', () => {
+            controlSocket.send(JSON.stringify({ counterClockwise: true }));
+            buttonInterval = setInterval(() => {
+                controlSocket.send(JSON.stringify({ counterClockwise: true }));
+            }, 100);
+        });
+
+        diagonalRightForwardButton.addEventListener('pointerdown', () => {
+            controlSocket.send(JSON.stringify({ diagonalRightForward: true }));
+            buttonInterval = setInterval(() => {
+                controlSocket.send(JSON.stringify({ diagonalRightForward: true }));
+            }, 100);
+        });
+
+        diagonalLeftForwardButton.addEventListener('pointerdown', () => {
+            controlSocket.send(JSON.stringify({ diagonalLeftForward: true }));
+            buttonInterval = setInterval(() => {
+                controlSocket.send(JSON.stringify({ diagonalLeftForward: true }));
+            }, 100);
+        });
+
+        diagonalRightBackwardButton.addEventListener('pointerdown', () => {
+            controlSocket.send(JSON.stringify({ diagonalRightBackward: true }));
+            buttonInterval = setInterval(() => {
+                controlSocket.send(JSON.stringify({ diagonalRightBackward: true }));
+            }, 100);
+        });
+
+        diagonalLeftBackwardButton.addEventListener('pointerdown', () => {
+            controlSocket.send(JSON.stringify({ diagonalLeftBackward: true }));
+            buttonInterval = setInterval(() => {
+                controlSocket.send(JSON.stringify({ diagonalLeftBackward: true }));
+            }, 100);
+        });
+
+        window.addEventListener('pointerup', () => {
+            clearInterval(buttonInterval);
+        });
+    </script>
+</body>
+</html>
