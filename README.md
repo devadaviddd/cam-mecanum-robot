@@ -1,3 +1,4 @@
-# DC motor with ESP32
-This is a sample code to work with a DC motor. <br /> 
-The speed is controlled with keyboard input. See "MySerial.h" and the function "SerialDataWrite()". <br />
+# Web App Joytick Video Stream With ESP32 Camera
+This is a source code to host the web app interface on ESP32 camera. <br /> 
+In order to see the logic of receiving commands from the web, please visit the source code 
+<a href="https://github.com/devadaviddd/mecanum-robot-control">Motor Control</a>. <br />
